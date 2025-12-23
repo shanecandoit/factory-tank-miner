@@ -20,6 +20,7 @@ pub struct Truck {
     pub cargo: Option<ResourceType>,
     pub cargo_amount: u32,
     pub mining_progress: f32,
+    pub last_mining_position: Option<Pos2>,
 }
 
 impl Truck {
@@ -34,6 +35,7 @@ impl Truck {
             cargo: None,
             cargo_amount: 0,
             mining_progress: 0.0,
+            last_mining_position: None,
         }
     }
     
@@ -113,6 +115,7 @@ impl Truck {
             self.state = TruckState::Mining;
             self.cargo = Some(resource_type);
             self.mining_progress = 0.0;
+            self.last_mining_position = Some(self.position);
         }
     }
     
