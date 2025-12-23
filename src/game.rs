@@ -111,6 +111,7 @@ impl eframe::App for GameApp {
         // Update enemies
         for enemy in &mut self.enemies {
             enemy.update(delta_time);
+            enemy.being_shot_at = false; // Reset each frame
         }
         
         // Update all trucks
@@ -144,6 +145,31 @@ impl eframe::App for GameApp {
                 }
             }
             
+            // Check if truck is at a factory to equip weapons
+            for building in &mut self.buildings {
+                if building.building_type == BuildingType::Factory {
+                    let factory_dist = (truck.position - building.position).length();
+                    // Allow equipping even while moving, just need to be close
+                    if factory_dist < 70.0 {
+                        // Equip gun if available and truck doesn't have one
+                        if !truck.has_gun && building.stored_guns > 0 {
+                            truck.has_gun = true;
+                            building.stored_guns -= 1;
+                        }
+                        
+                        // Load bullets if truck has gun and factory has bullets
+                        if truck.has_gun && truck.bullets < 400 && building.stored_bullet_boxes > 0 {
+                            let bullets_needed = 400 - truck.bullets;
+                            let boxes_to_load = (bullets_needed / 100).min(building.stored_bullet_boxes);
+                            if boxes_to_load > 0 {
+                                truck.bullets += boxes_to_load * 100;
+                                building.stored_bullet_boxes -= boxes_to_load;
+                            }
+                        }
+                    }
+                }
+            }
+            
             // Check if truck is on an ore patch and should start mining
             if truck.state == crate::truck::TruckState::Idle && truck.cargo_amount < 64 {
                 for patch in &self.ore_patches {
@@ -154,6 +180,8 @@ impl eframe::App for GameApp {
                 }
             }
         }
+        
+        // Armed trucks auto-fire at enemies in range
         
         // Update buildings production
         for building in &mut self.buildings {
@@ -179,10 +207,10 @@ impl eframe::App for GameApp {
                             self.next_truck_id += 1;
                         }
                         ProductionType::Gun => {
-                            self.guns += 1;
+                            building.stored_guns += 1;
                         }
                         ProductionType::Bullets => {
-                            self.bullets += 50;
+                            building.stored_bullet_boxes += 1;
                         }
                     }
                 }
@@ -197,9 +225,18 @@ impl eframe::App for GameApp {
                 ui.separator();
                 ui.label(format!("Coal: {}", self.coal));
                 ui.separator();
-                ui.label(format!("Guns: {}", self.guns));
-                ui.separator();
-                ui.label(format!("Bullets: {}", self.bullets));
+                
+                // Calculate total factory inventory
+                let total_guns: u32 = self.buildings.iter()
+                    .filter(|b| b.building_type == BuildingType::Factory)
+                    .map(|b| b.stored_guns)
+                    .sum();
+                let total_bullets: u32 = self.buildings.iter()
+                    .filter(|b| b.building_type == BuildingType::Factory)
+                    .map(|b| b.stored_bullet_boxes)
+                    .sum();
+                
+                ui.label(format!("Guns: {} | Bullets: {} boxes", total_guns, total_bullets));
                 ui.separator();
                 ui.label(format!("Trucks: {}", self.trucks.len()));
                 ui.separator();
@@ -432,10 +469,13 @@ impl eframe::App for GameApp {
             for (idx, building) in self.buildings.iter().enumerate() {
                 let screen_pos = Pos2::new(building.position.x + self.camera_offset.x, building.position.y + self.camera_offset.y);
                 
-                let (color, label) = match building.building_type {
-                    BuildingType::Beacon => (Color32::from_rgb(255, 215, 0), "BEACON"),
-                    BuildingType::Garage => (Color32::from_rgb(120, 120, 140), "GARAGE"),
-                    BuildingType::Factory => (Color32::from_rgb(140, 100, 80), "FACTORY"),
+                let (color, mut label) = match building.building_type {
+                    BuildingType::Beacon => (Color32::from_rgb(255, 215, 0), "BEACON".to_string()),
+                    BuildingType::Garage => (Color32::from_rgb(120, 120, 140), "GARAGE".to_string()),
+                    BuildingType::Factory => {
+                        let label = format!("FACTORY\n({}G {}B)", building.stored_guns, building.stored_bullet_boxes);
+                        (Color32::from_rgb(140, 100, 80), label)
+                    },
                 };
                 
                 let rect = Rect::from_center_size(screen_pos, Vec2::splat(building.size * 2.0));
@@ -453,7 +493,7 @@ impl eframe::App for GameApp {
                     screen_pos,
                     egui::Align2::CENTER_CENTER,
                     label,
-                    egui::FontId::proportional(10.0),
+                    egui::FontId::proportional(9.0),
                     Color32::BLACK,
                 );
                 
@@ -644,8 +684,10 @@ impl eframe::App for GameApp {
             for truck in &self.trucks {
                 let screen_pos = Pos2::new(truck.position.x + self.camera_offset.x, truck.position.y + self.camera_offset.y);
                 
-                // Choose color based on state and cargo
-                let color = if truck.selected {
+                // Choose color: armed=orange, with cargo=cargo color, else=blue, selected=green
+                let color = if truck.has_gun {
+                    Color32::from_rgb(255, 140, 0) // Orange for armed trucks
+                } else if truck.selected {
                     Color32::from_rgb(100, 255, 100)
                 } else {
                     match truck.cargo {
@@ -660,8 +702,18 @@ impl eframe::App for GameApp {
                 painter.rect_filled(bounds, 2.0, color);
                 painter.rect_stroke(bounds, 2.0, (2.0, Color32::BLACK));
                 
-                // Draw cargo amount if carrying resources
-                if truck.cargo_amount > 0 {
+                // Draw gun/ammo indicator for armed trucks
+                if truck.has_gun {
+                    // Draw "G" with bullet count
+                    painter.text(
+                        screen_pos,
+                        egui::Align2::CENTER_CENTER,
+                        format!("G({})", truck.bullets),
+                        egui::FontId::proportional(9.0),
+                        Color32::WHITE,
+                    );
+                } else if truck.cargo_amount > 0 {
+                    // Show cargo amount for mining trucks
                     painter.text(
                         screen_pos,
                         egui::Align2::CENTER_CENTER,

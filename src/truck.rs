@@ -21,9 +21,15 @@ pub struct Truck {
     pub cargo_amount: u32,
     pub mining_progress: f32,
     pub last_mining_position: Option<Pos2>,
+    pub has_gun: bool,
+    pub bullets: u32,
+    pub fire_cooldown: f32,
 }
 
 impl Truck {
+    pub const WEAPON_RANGE: f32 = 150.0;
+    pub const FIRE_RATE: f32 = 0.5; // seconds between shots
+    
     pub fn new(id: usize, position: Pos2) -> Self {
         Self {
             id,
@@ -36,10 +42,18 @@ impl Truck {
             cargo_amount: 0,
             mining_progress: 0.0,
             last_mining_position: None,
+            has_gun: false,
+            bullets: 0,
+            fire_cooldown: 0.0,
         }
     }
     
     pub fn update(&mut self, delta_time: f32) {
+        // Update fire cooldown
+        if self.fire_cooldown > 0.0 {
+            self.fire_cooldown -= delta_time;
+        }
+        
         match self.state {
             TruckState::Mining => {
                 // Mining progress

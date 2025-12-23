@@ -48,6 +48,8 @@ pub struct Building {
     pub size: f32,
     pub production_queue: Vec<ProductionType>,
     pub production_progress: f32,
+    pub stored_guns: u32,
+    pub stored_bullet_boxes: u32,
 }
 
 impl Building {
@@ -64,6 +66,8 @@ impl Building {
             size,
             production_queue: Vec::new(),
             production_progress: 0.0,
+            stored_guns: 0,
+            stored_bullet_boxes: 0,
         }
     }
     

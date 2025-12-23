@@ -26,6 +26,13 @@ impl EnemySize {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EnemyBehavior {
+    Wandering,
+    Fleeing,
+    Attacking,
+}
+
 #[derive(Debug, Clone)]
 pub struct Enemy {
     pub id: usize,
@@ -35,6 +42,8 @@ pub struct Enemy {
     pub max_health: u32,
     pub target: Option<Pos2>,
     pub wander_timer: f32,
+    pub behavior: EnemyBehavior,
+    pub being_shot_at: bool,
 }
 
 impl Enemy {
@@ -48,6 +57,8 @@ impl Enemy {
             max_health,
             target: None,
             wander_timer: 0.0,
+            behavior: EnemyBehavior::Wandering,
+            being_shot_at: false,
         }
     }
     
