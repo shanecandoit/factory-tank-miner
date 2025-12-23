@@ -1,9 +1,11 @@
 use eframe::egui;
 use egui::{Color32, Pos2, Rect, Vec2};
 use crate::truck::Truck;
+use crate::resource::{OrePatch, ResourceType};
 
 pub struct GameApp {
     pub trucks: Vec<Truck>,
+    pub ore_patches: Vec<OrePatch>,
     pub next_truck_id: usize,
     dragging: bool,
     drag_start: Option<Pos2>,
@@ -16,12 +18,17 @@ pub struct GameApp {
 impl Default for GameApp {
     fn default() -> Self {
         let mut trucks = Vec::new();
-        trucks.push(Truck::new(0, Pos2::new(200.0, 200.0)));
-        trucks.push(Truck::new(1, Pos2::new(300.0, 250.0)));
-        trucks.push(Truck::new(2, Pos2::new(250.0, 350.0)));
+        trucks.push(Truck::new(0, Pos2::new(50.0, 50.0)));
+        trucks.push(Truck::new(1, Pos2::new(100.0, 50.0)));
+        trucks.push(Truck::new(2, Pos2::new(75.0, 100.0)));
+        
+        let mut ore_patches = Vec::new();
+        ore_patches.push(OrePatch::new(Pos2::new(-150.0, 100.0), ResourceType::Iron));
+        ore_patches.push(OrePatch::new(Pos2::new(150.0, 100.0), ResourceType::Coal));
         
         Self {
             trucks,
+            ore_patches,
             next_truck_id: 3,
             dragging: false,
             drag_start: None,
@@ -43,6 +50,16 @@ impl eframe::App for GameApp {
         // Update all trucks
         for truck in &mut self.trucks {
             truck.update(delta_time);
+            
+            // Check if truck is on an ore patch and should start mining
+            if truck.state == crate::truck::TruckState::Idle && truck.cargo_amount < 64 {
+                for patch in &self.ore_patches {
+                    if patch.contains_point(truck.position) {
+                        truck.start_mining(patch.resource_type);
+                        break;
+                    }
+                }
+            }
         }
         
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -54,8 +71,11 @@ impl eframe::App for GameApp {
                 let selected_count = self.trucks.iter().filter(|t| t.selected).count();
                 ui.label(format!("Selected: {}", selected_count));
                 ui.separator();
+                let mining_count = self.trucks.iter().filter(|t| t.state == crate::truck::TruckState::Mining).count();
+                ui.label(format!("Mining: {}", mining_count));
+                ui.separator();
                 if ui.button("Add Truck").clicked() {
-                    let pos = Pos2::new(400.0, 300.0);
+                    let pos = Pos2::new(50.0, 50.0);
                     self.trucks.push(Truck::new(self.next_truck_id, pos));
                     self.next_truck_id += 1;
                 }
@@ -130,6 +150,32 @@ impl eframe::App for GameApp {
                 );
                 // Small circle at center
                 painter.circle_filled(origin_screen, 3.0, Color32::from_rgba_premultiplied(255, 255, 255, 60));
+            }
+            
+            // Draw ore patches
+            for patch in &self.ore_patches {
+                let screen_pos = Pos2::new(patch.position.x + self.camera_offset.x, patch.position.y + self.camera_offset.y);
+                
+                let color = match patch.resource_type {
+                    ResourceType::Iron => Color32::from_rgb(180, 140, 120),
+                    ResourceType::Coal => Color32::from_rgb(60, 60, 70),
+                };
+                
+                painter.circle_filled(screen_pos, patch.size, color);
+                painter.circle_stroke(screen_pos, patch.size, (2.0, Color32::BLACK));
+                
+                // Draw label
+                let label = match patch.resource_type {
+                    ResourceType::Iron => "IRON",
+                    ResourceType::Coal => "COAL",
+                };
+                painter.text(
+                    screen_pos,
+                    egui::Align2::CENTER_CENTER,
+                    label,
+                    egui::FontId::proportional(12.0),
+                    Color32::WHITE,
+                );
             }
             
             // Handle input
@@ -231,7 +277,7 @@ impl eframe::App for GameApp {
                     let world_target = Pos2::new(target_pos.x - self.camera_offset.x, target_pos.y - self.camera_offset.y);
                     for truck in &mut self.trucks {
                         if truck.selected {
-                            truck.target = Some(world_target);
+                            truck.start_moving(world_target);
                         }
                     }
                 }
@@ -256,16 +302,33 @@ impl eframe::App for GameApp {
             // Draw trucks
             for truck in &self.trucks {
                 let screen_pos = Pos2::new(truck.position.x + self.camera_offset.x, truck.position.y + self.camera_offset.y);
+                
+                // Choose color based on state and cargo
                 let color = if truck.selected {
                     Color32::from_rgb(100, 255, 100)
                 } else {
-                    Color32::from_rgb(100, 150, 255)
+                    match truck.cargo {
+                        Some(ResourceType::Iron) => Color32::from_rgb(180, 140, 120),
+                        Some(ResourceType::Coal) => Color32::from_rgb(80, 80, 90),
+                        None => Color32::from_rgb(100, 150, 255),
+                    }
                 };
                 
                 // Draw truck body
                 let bounds = Rect::from_center_size(screen_pos, Vec2::splat(truck.size));
                 painter.rect_filled(bounds, 2.0, color);
                 painter.rect_stroke(bounds, 2.0, (2.0, Color32::BLACK));
+                
+                // Draw cargo amount if carrying resources
+                if truck.cargo_amount > 0 {
+                    painter.text(
+                        screen_pos,
+                        egui::Align2::CENTER_CENTER,
+                        format!("{}", truck.cargo_amount),
+                        egui::FontId::proportional(10.0),
+                        Color32::WHITE,
+                    );
+                }
                 
                 // Draw selection indicator
                 if truck.selected {

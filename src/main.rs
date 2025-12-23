@@ -1,5 +1,6 @@
 mod truck;
 mod game;
+mod resource;
 
 use eframe::egui;
 use game::GameApp;
