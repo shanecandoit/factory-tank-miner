@@ -429,58 +429,43 @@ impl eframe::App for GameApp {
             let canvas_rect = response.rect;
             painter.rect_filled(canvas_rect, 0.0, Color32::from_rgb(30, 30, 35));
             
-            // Helper function to convert world position to screen position with zoom
-            let world_to_screen = |world_pos: Pos2| -> Pos2 {
-                Pos2::new(
-                    world_pos.x * self.zoom + self.camera_offset.x,
-                    world_pos.y * self.zoom + self.camera_offset.y
-                )
-            };
-            
-            // Helper function to convert screen position to world position with zoom
-            let screen_to_world = |screen_pos: Pos2| -> Pos2 {
-                Pos2::new(
-                    (screen_pos.x - self.camera_offset.x) / self.zoom,
-                    (screen_pos.y - self.camera_offset.y) / self.zoom
-                )
-            };
-            
             // Draw grid
             let grid_size = 64.0 * self.zoom;
             let grid_color = Color32::from_rgb(25, 25, 30);
             
             // Calculate world space bounds visible in the canvas
-            let world_min_x = canvas_rect.min.x - self.camera_offset.x;
-            let world_max_x = canvas_rect.max.x - self.camera_offset.x;
-            let world_min_y = canvas_rect.min.y - self.camera_offset.y;
-            let world_max_y = canvas_rect.max.y - self.camera_offset.y;
+            let world_min_x = (canvas_rect.min.x - self.camera_offset.x) / self.zoom;
+            let world_max_x = (canvas_rect.max.x - self.camera_offset.x) / self.zoom;
+            let world_min_y = (canvas_rect.min.y - self.camera_offset.y) / self.zoom;
+            let world_max_y = (canvas_rect.max.y - self.camera_offset.y) / self.zoom;
             
             // Vertical lines
-            let start_x = (world_min_x / grid_size).floor() * grid_size;
+            let base_grid = 64.0;
+            let start_x = (world_min_x / base_grid).floor() * base_grid;
             let mut x = start_x;
             while x <= world_max_x {
-                let screen_x = x + self.camera_offset.x;
+                let screen_x = x * self.zoom + self.camera_offset.x;
                 painter.line_segment(
                     [Pos2::new(screen_x, canvas_rect.min.y), Pos2::new(screen_x, canvas_rect.max.y)],
                     (1.0, grid_color)
                 );
-                x += grid_size;
+                x += base_grid;
             }
             
             // Horizontal lines
-            let start_y = (world_min_y / grid_size).floor() * grid_size;
+            let start_y = (world_min_y / base_grid).floor() * base_grid;
             let mut y = start_y;
             while y <= world_max_y {
-                let screen_y = y + self.camera_offset.y;
+                let screen_y = y * self.zoom + self.camera_offset.y;
                 painter.line_segment(
                     [Pos2::new(canvas_rect.min.x, screen_y), Pos2::new(canvas_rect.max.x, screen_y)],
                     (1.0, grid_color)
                 );
-                y += grid_size;
+                y += base_grid;
             }
             
             // Draw origin beacon
-            let origin_screen = Pos2::new(0.0 + self.camera_offset.x, 0.0 + self.camera_offset.y);
+            let origin_screen = Pos2::new(0.0 * self.zoom + self.camera_offset.x, 0.0 * self.zoom + self.camera_offset.y);
             if canvas_rect.contains(origin_screen) {
                 // Cross at origin
                 let beacon_color = Color32::from_rgba_premultiplied(255, 255, 255, 40);
@@ -499,15 +484,15 @@ impl eframe::App for GameApp {
             
             // Draw ore patches
             for patch in &self.ore_patches {
-                let screen_pos = Pos2::new(patch.position.x + self.camera_offset.x, patch.position.y + self.camera_offset.y);
+                let screen_pos = Pos2::new(patch.position.x * self.zoom + self.camera_offset.x, patch.position.y * self.zoom + self.camera_offset.y);
                 
                 let color = match patch.resource_type {
                     ResourceType::Iron => Color32::from_rgb(180, 140, 120),
                     ResourceType::Coal => Color32::from_rgb(60, 60, 70),
                 };
                 
-                painter.circle_filled(screen_pos, patch.size, color);
-                painter.circle_stroke(screen_pos, patch.size, (2.0, Color32::BLACK));
+                painter.circle_filled(screen_pos, patch.size * self.zoom, color);
+                painter.circle_stroke(screen_pos, patch.size * self.zoom, (2.0, Color32::BLACK));
                 
                 // Draw label
                 let label = match patch.resource_type {
@@ -525,7 +510,7 @@ impl eframe::App for GameApp {
             
             // Draw enemies
             for enemy in &self.enemies {
-                let screen_pos = Pos2::new(enemy.position.x + self.camera_offset.x, enemy.position.y + self.camera_offset.y);
+                let screen_pos = Pos2::new(enemy.position.x * self.zoom + self.camera_offset.x, enemy.position.y * self.zoom + self.camera_offset.y);
                 
                 // Red color, darker for larger enemies
                 let color = match enemy.size {
@@ -534,23 +519,24 @@ impl eframe::App for GameApp {
                     EnemySize::Large => Color32::from_rgb(180, 20, 20),
                 };
                 
-                painter.circle_filled(screen_pos, enemy.radius(), color);
-                painter.circle_stroke(screen_pos, enemy.radius(), (2.0, Color32::from_rgb(100, 0, 0)));
+                let scaled_radius = enemy.radius() * self.zoom;
+                painter.circle_filled(screen_pos, scaled_radius, color);
+                painter.circle_stroke(screen_pos, scaled_radius, (2.0, Color32::from_rgb(100, 0, 0)));
                 
                 // Health bar
                 if enemy.health < enemy.max_health {
-                    let bar_width = enemy.radius() * 2.0;
-                    let bar_height = 4.0;
+                    let bar_width = scaled_radius * 2.0;
+                    let bar_height = 4.0 * self.zoom;
                     let health_percent = enemy.health as f32 / enemy.max_health as f32;
                     
                     let bg_rect = Rect::from_min_size(
-                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - enemy.radius() - 10.0),
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - scaled_radius - 10.0 * self.zoom),
                         Vec2::new(bar_width, bar_height)
                     );
                     painter.rect_filled(bg_rect, 0.0, Color32::from_rgb(50, 50, 50));
                     
                     let health_rect = Rect::from_min_size(
-                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - enemy.radius() - 10.0),
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - scaled_radius - 10.0 * self.zoom),
                         Vec2::new(bar_width * health_percent, bar_height)
                     );
                     painter.rect_filled(health_rect, 0.0, Color32::from_rgb(255, 0, 0));
@@ -559,7 +545,7 @@ impl eframe::App for GameApp {
             
             // Draw buildings
             for (idx, building) in self.buildings.iter().enumerate() {
-                let screen_pos = Pos2::new(building.position.x + self.camera_offset.x, building.position.y + self.camera_offset.y);
+                let screen_pos = Pos2::new(building.position.x * self.zoom + self.camera_offset.x, building.position.y * self.zoom + self.camera_offset.y);
                 
                 let (color, mut label) = match building.building_type {
                     BuildingType::Beacon => (Color32::from_rgb(255, 215, 0), "BEACON".to_string()),
@@ -570,7 +556,7 @@ impl eframe::App for GameApp {
                     },
                 };
                 
-                let rect = Rect::from_center_size(screen_pos, Vec2::splat(building.size * 2.0));
+                let rect = Rect::from_center_size(screen_pos, Vec2::splat(building.size * 2.0 * self.zoom));
                 painter.rect_filled(rect, 2.0, color);
                 
                 // Highlight if selected
@@ -593,17 +579,17 @@ impl eframe::App for GameApp {
                 if !building.production_queue.is_empty() {
                     let current = building.production_queue[0];
                     let progress = building.production_progress / current.time();
-                    let bar_width = building.size * 2.0;
-                    let bar_height = 6.0;
+                    let bar_width = building.size * 2.0 * self.zoom;
+                    let bar_height = 6.0 * self.zoom;
                     
                     let bg_rect = Rect::from_min_size(
-                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y + building.size + 5.0),
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y + building.size * self.zoom + 5.0 * self.zoom),
                         Vec2::new(bar_width, bar_height)
                     );
                     painter.rect_filled(bg_rect, 0.0, Color32::from_rgb(50, 50, 50));
                     
                     let bar_rect = Rect::from_min_size(
-                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y + building.size + 5.0),
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y + building.size * self.zoom + 5.0 * self.zoom),
                         Vec2::new(bar_width * progress, bar_height)
                     );
                     painter.rect_filled(bar_rect, 0.0, Color32::from_rgb(100, 255, 100));
@@ -611,18 +597,18 @@ impl eframe::App for GameApp {
                 
                 // Health bar for damaged buildings
                 if building.health < building.max_health {
-                    let bar_width = building.size * 2.0;
-                    let bar_height = 5.0;
+                    let bar_width = building.size * 2.0 * self.zoom;
+                    let bar_height = 5.0 * self.zoom;
                     let health_percent = building.health as f32 / building.max_health as f32;
                     
                     let bg_rect = Rect::from_min_size(
-                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - building.size - 12.0),
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - building.size * self.zoom - 12.0 * self.zoom),
                         Vec2::new(bar_width, bar_height)
                     );
                     painter.rect_filled(bg_rect, 0.0, Color32::from_rgb(50, 50, 50));
                     
                     let health_rect = Rect::from_min_size(
-                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - building.size - 12.0),
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - building.size * self.zoom - 12.0 * self.zoom),
                         Vec2::new(bar_width * health_percent, bar_height)
                     );
                     painter.rect_filled(health_rect, 0.0, Color32::from_rgb(255, 0, 0));
@@ -807,8 +793,8 @@ impl eframe::App for GameApp {
                     }
                     
                     if let Some(enemy_pos) = closest_enemy_pos {
-                        let truck_screen = Pos2::new(truck.position.x + self.camera_offset.x, truck.position.y + self.camera_offset.y);
-                        let enemy_screen = Pos2::new(enemy_pos.x + self.camera_offset.x, enemy_pos.y + self.camera_offset.y);
+                        let truck_screen = Pos2::new(truck.position.x * self.zoom + self.camera_offset.x, truck.position.y * self.zoom + self.camera_offset.y);
+                        let enemy_screen = Pos2::new(enemy_pos.x * self.zoom + self.camera_offset.x, enemy_pos.y * self.zoom + self.camera_offset.y);
                         painter.line_segment([truck_screen, enemy_screen], (2.0, Color32::from_rgb(255, 255, 0)));
                     }
                 }
@@ -816,7 +802,7 @@ impl eframe::App for GameApp {
             
             // Draw trucks
             for truck in &self.trucks {
-                let screen_pos = Pos2::new(truck.position.x + self.camera_offset.x, truck.position.y + self.camera_offset.y);
+                let screen_pos = Pos2::new(truck.position.x * self.zoom + self.camera_offset.x, truck.position.y * self.zoom + self.camera_offset.y);
                 
                 // Choose color: armed=orange, with cargo=cargo color, else=blue, selected=green
                 let color = if truck.has_gun {
@@ -832,7 +818,8 @@ impl eframe::App for GameApp {
                 };
                 
                 // Draw truck body
-                let bounds = Rect::from_center_size(screen_pos, Vec2::splat(truck.size));
+                let scaled_size = truck.size * self.zoom;
+                let bounds = Rect::from_center_size(screen_pos, Vec2::splat(scaled_size));
                 painter.rect_filled(bounds, 2.0, color);
                 painter.rect_stroke(bounds, 2.0, (2.0, Color32::BLACK));
                 
@@ -877,15 +864,15 @@ impl eframe::App for GameApp {
                 if truck.selected {
                     let selection_rect = Rect::from_center_size(
                         screen_pos,
-                        Vec2::splat(truck.size + 6.0)
+                        Vec2::splat(scaled_size + 6.0 * self.zoom)
                     );
                     painter.rect_stroke(selection_rect, 0.0, (2.0, Color32::YELLOW));
                 }
                 
                 // Draw target indicator
                 if let Some(target) = truck.target {
-                    let screen_target = Pos2::new(target.x + self.camera_offset.x, target.y + self.camera_offset.y);
-                    painter.circle_stroke(screen_target, 5.0, (2.0, Color32::from_rgb(255, 255, 100)));
+                    let screen_target = Pos2::new(target.x * self.zoom + self.camera_offset.x, target.y * self.zoom + self.camera_offset.y);
+                    painter.circle_stroke(screen_target, 5.0 * self.zoom, (2.0, Color32::from_rgb(255, 255, 100)));
                     painter.line_segment(
                         [screen_pos, screen_target],
                         (1.0, Color32::from_rgb(150, 150, 50))
