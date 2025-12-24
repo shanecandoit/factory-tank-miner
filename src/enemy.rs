@@ -62,22 +62,9 @@ impl Enemy {
         }
     }
     
-    pub fn update(&mut self, delta_time: f32) {
-        self.wander_timer -= delta_time;
-        
-        // Pick a new random target occasionally
-        if self.wander_timer <= 0.0 {
-            let mut rng = rand::thread_rng();
-            let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-            let distance = rng.gen_range(50.0..200.0);
-            
-            self.target = Some(Pos2::new(
-                self.position.x + angle.cos() * distance,
-                self.position.y + angle.sin() * distance,
-            ));
-            
-            self.wander_timer = rng.gen_range(2.0..5.0);
-        }
+    pub fn update(&mut self, delta_time: f32, beacon_pos: Pos2) {
+        // Always head towards the beacon (origin)
+        self.target = Some(beacon_pos);
         
         // Move towards target
         if let Some(target) = self.target {
@@ -86,9 +73,9 @@ impl Enemy {
             
             if distance > 2.0 {
                 let speed = match self.size {
-                    EnemySize::Small => 40.0,
-                    EnemySize::Medium => 25.0,
-                    EnemySize::Large => 15.0,
+                    EnemySize::Small => 20.0,
+                    EnemySize::Medium => 15.0,
+                    EnemySize::Large => 10.0,
                 };
                 
                 let movement = direction.normalized() * speed * delta_time;
@@ -96,10 +83,7 @@ impl Enemy {
                     self.position += movement;
                 } else {
                     self.position = target;
-                    self.target = None;
                 }
-            } else {
-                self.target = None;
             }
         }
     }

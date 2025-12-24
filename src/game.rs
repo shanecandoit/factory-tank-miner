@@ -34,12 +34,17 @@ pub struct GameApp {
     selected_building: Option<usize>,
     enemy_spawn_timer: f32,
     camera_initialized: bool,
+    zoom: f32,
+    game_timer: f32,
 }
 
 impl Default for GameApp {
     fn default() -> Self {
         let mut trucks = Vec::new();
-        trucks.push(Truck::new(0, Pos2::new(50.0, 50.0)));
+        let mut armed_truck = Truck::new(0, Pos2::new(50.0, 50.0));
+        armed_truck.has_gun = true;
+        armed_truck.bullets = 200;
+        trucks.push(armed_truck);
         trucks.push(Truck::new(1, Pos2::new(100.0, 50.0)));
         trucks.push(Truck::new(2, Pos2::new(75.0, 100.0)));
         
@@ -69,8 +74,10 @@ impl Default for GameApp {
             pan_start: None,
             build_mode: BuildMode::None,
             selected_building: None,
-            enemy_spawn_timer: 10.0,
+            enemy_spawn_timer: 300.0,
             camera_initialized: false,
+            zoom: 1.0,
+            game_timer: 0.0,
         }
     }
 }
@@ -81,6 +88,9 @@ impl eframe::App for GameApp {
         ctx.request_repaint();
         
         let delta_time = ctx.input(|i| i.stable_dt);
+        
+        // Update game timer
+        self.game_timer += delta_time;
         
         // Center camera on beacon on first frame
         if !self.camera_initialized {
@@ -108,11 +118,33 @@ impl eframe::App for GameApp {
             self.enemy_spawn_timer = rng.gen_range(8.0..15.0);
         }
         
-        // Update enemies
+        // Update enemies - they move towards beacon
+        let beacon_pos = Pos2::new(0.0, 0.0);
         for enemy in &mut self.enemies {
-            enemy.update(delta_time);
+            enemy.update(delta_time, beacon_pos);
             enemy.being_shot_at = false; // Reset each frame
         }
+        
+        // Enemies attack buildings when in range
+        for enemy in &mut self.enemies {
+            for building in &mut self.buildings {
+                let distance = (enemy.position - building.position).length();
+                let attack_range = enemy.radius() + building.size;
+                
+                if distance < attack_range {
+                    // Deal damage based on enemy size
+                    let damage = match enemy.size {
+                        crate::enemy::EnemySize::Small => 1,
+                        crate::enemy::EnemySize::Medium => 2,
+                        crate::enemy::EnemySize::Large => 5,
+                    };
+                    building.health = building.health.saturating_sub(damage);
+                }
+            }
+        }
+        
+        // Remove destroyed buildings (except beacon for now)
+        self.buildings.retain(|b| b.health > 0 || b.building_type == BuildingType::Beacon);
         
         // Update all trucks
         for truck in &mut self.trucks {
@@ -277,6 +309,20 @@ impl eframe::App for GameApp {
                 ui.label(format!("Mining: {}", mining_count));
                 ui.separator();
                 ui.label(format!("Enemies: {}", self.enemies.len()));
+                ui.separator();
+                
+                // Zoom controls (disabled for first 200 seconds)
+                let zoom_enabled = self.game_timer >= 200.0;
+                if ui.add_enabled(zoom_enabled, egui::Button::new("🔍+")).clicked() {
+                    self.zoom = (self.zoom * 1.2).min(3.0);
+                }
+                if ui.add_enabled(zoom_enabled, egui::Button::new("🔍-")).clicked() {
+                    self.zoom = (self.zoom / 1.2).max(0.5);
+                }
+                if !zoom_enabled {
+                    let time_left = (200.0 - self.game_timer) as u32;
+                    ui.label(format!("({}s)", time_left));
+                }
             });
             
             ui.separator();
@@ -383,8 +429,24 @@ impl eframe::App for GameApp {
             let canvas_rect = response.rect;
             painter.rect_filled(canvas_rect, 0.0, Color32::from_rgb(30, 30, 35));
             
+            // Helper function to convert world position to screen position with zoom
+            let world_to_screen = |world_pos: Pos2| -> Pos2 {
+                Pos2::new(
+                    world_pos.x * self.zoom + self.camera_offset.x,
+                    world_pos.y * self.zoom + self.camera_offset.y
+                )
+            };
+            
+            // Helper function to convert screen position to world position with zoom
+            let screen_to_world = |screen_pos: Pos2| -> Pos2 {
+                Pos2::new(
+                    (screen_pos.x - self.camera_offset.x) / self.zoom,
+                    (screen_pos.y - self.camera_offset.y) / self.zoom
+                )
+            };
+            
             // Draw grid
-            let grid_size = 64.0;
+            let grid_size = 64.0 * self.zoom;
             let grid_color = Color32::from_rgb(25, 25, 30);
             
             // Calculate world space bounds visible in the canvas
@@ -545,6 +607,25 @@ impl eframe::App for GameApp {
                         Vec2::new(bar_width * progress, bar_height)
                     );
                     painter.rect_filled(bar_rect, 0.0, Color32::from_rgb(100, 255, 100));
+                }
+                
+                // Health bar for damaged buildings
+                if building.health < building.max_health {
+                    let bar_width = building.size * 2.0;
+                    let bar_height = 5.0;
+                    let health_percent = building.health as f32 / building.max_health as f32;
+                    
+                    let bg_rect = Rect::from_min_size(
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - building.size - 12.0),
+                        Vec2::new(bar_width, bar_height)
+                    );
+                    painter.rect_filled(bg_rect, 0.0, Color32::from_rgb(50, 50, 50));
+                    
+                    let health_rect = Rect::from_min_size(
+                        Pos2::new(screen_pos.x - bar_width / 2.0, screen_pos.y - building.size - 12.0),
+                        Vec2::new(bar_width * health_percent, bar_height)
+                    );
+                    painter.rect_filled(health_rect, 0.0, Color32::from_rgb(255, 0, 0));
                 }
             }
             
@@ -755,9 +836,25 @@ impl eframe::App for GameApp {
                 painter.rect_filled(bounds, 2.0, color);
                 painter.rect_stroke(bounds, 2.0, (2.0, Color32::BLACK));
                 
-                // Draw gun/ammo indicator for armed trucks
-                if truck.has_gun {
-                    // Draw "G" with bullet count
+                // Draw cargo and ammo info
+                if truck.has_gun && truck.cargo_amount > 0 {
+                    // Show both ore and bullets
+                    painter.text(
+                        Pos2::new(screen_pos.x, screen_pos.y - 4.0),
+                        egui::Align2::CENTER_CENTER,
+                        format!("{}", truck.cargo_amount),
+                        egui::FontId::proportional(9.0),
+                        Color32::WHITE,
+                    );
+                    painter.text(
+                        Pos2::new(screen_pos.x, screen_pos.y + 4.0),
+                        egui::Align2::CENTER_CENTER,
+                        format!("G{}", truck.bullets),
+                        egui::FontId::proportional(8.0),
+                        Color32::YELLOW,
+                    );
+                } else if truck.has_gun {
+                    // Only show gun/bullets
                     painter.text(
                         screen_pos,
                         egui::Align2::CENTER_CENTER,
@@ -766,7 +863,7 @@ impl eframe::App for GameApp {
                         Color32::WHITE,
                     );
                 } else if truck.cargo_amount > 0 {
-                    // Show cargo amount for mining trucks
+                    // Only show cargo amount for mining trucks
                     painter.text(
                         screen_pos,
                         egui::Align2::CENTER_CENTER,

@@ -50,6 +50,8 @@ pub struct Building {
     pub production_progress: f32,
     pub stored_guns: u32,
     pub stored_bullet_boxes: u32,
+    pub health: u32,
+    pub max_health: u32,
 }
 
 impl Building {
@@ -60,6 +62,12 @@ impl Building {
             BuildingType::Factory => 50.0,
         };
         
+        let max_health = match building_type {
+            BuildingType::Beacon => 1000,
+            BuildingType::Garage => 300,
+            BuildingType::Factory => 400,
+        };
+        
         Self {
             position,
             building_type,
@@ -68,6 +76,8 @@ impl Building {
             production_progress: 0.0,
             stored_guns: 0,
             stored_bullet_boxes: 0,
+            health: max_health,
+            max_health,
         }
     }
     
