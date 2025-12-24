@@ -182,6 +182,36 @@ impl eframe::App for GameApp {
         }
         
         // Armed trucks auto-fire at enemies in range
+        for truck in &mut self.trucks {
+            if truck.has_gun && truck.bullets > 0 && truck.fire_cooldown <= 0.0 {
+                // Find closest enemy in range
+                let mut closest_enemy_idx: Option<usize> = None;
+                let mut closest_distance = f32::MAX;
+                
+                for (idx, enemy) in self.enemies.iter().enumerate() {
+                    let distance = (enemy.position - truck.position).length();
+                    if distance <= Truck::WEAPON_RANGE && distance < closest_distance {
+                        closest_distance = distance;
+                        closest_enemy_idx = Some(idx);
+                    }
+                }
+                
+                // Shoot at closest enemy
+                if let Some(enemy_idx) = closest_enemy_idx {
+                    truck.bullets -= 1;
+                    truck.fire_cooldown = Truck::FIRE_RATE;
+                    
+                    // Damage the enemy
+                    if let Some(enemy) = self.enemies.get_mut(enemy_idx) {
+                        enemy.being_shot_at = true;
+                        enemy.health = enemy.health.saturating_sub(1);
+                    }
+                }
+            }
+        }
+        
+        // Remove dead enemies
+        self.enemies.retain(|e| e.health > 0);
         
         // Update buildings production
         for building in &mut self.buildings {
@@ -521,10 +551,10 @@ impl eframe::App for GameApp {
             // Handle input
             let pointer_pos = response.hover_pos();
             let ctrl_held = ui.input(|i| i.modifiers.ctrl);
-            let middle_button = ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
+            let right_button = ui.input(|i| i.pointer.button_down(egui::PointerButton::Secondary));
             
-            // Handle camera panning with middle mouse button
-            if middle_button && !self.panning {
+            // Handle camera panning with right mouse button
+            if right_button && !self.panning {
                 if let Some(pos) = pointer_pos {
                     self.panning = true;
                     self.pan_start = Some(pos);
@@ -532,7 +562,7 @@ impl eframe::App for GameApp {
             }
             
             if self.panning {
-                if middle_button {
+                if right_button {
                     if let (Some(start), Some(current)) = (self.pan_start, pointer_pos) {
                         let delta = current - start;
                         self.camera_offset += delta;
@@ -677,6 +707,29 @@ impl eframe::App for GameApp {
                     );
                     painter.rect_stroke(rect, 0.0, (1.0, Color32::WHITE));
                     painter.rect_filled(rect, 0.0, Color32::from_rgba_premultiplied(255, 255, 255, 20));
+                }
+            }
+            
+            // Draw bullet tracers from trucks to enemies they're shooting
+            for truck in &self.trucks {
+                if truck.has_gun && truck.fire_cooldown > Truck::FIRE_RATE - 0.1 {
+                    // Find closest enemy in range to draw tracer
+                    let mut closest_enemy_pos: Option<Pos2> = None;
+                    let mut closest_distance = f32::MAX;
+                    
+                    for enemy in &self.enemies {
+                        let distance = (enemy.position - truck.position).length();
+                        if distance <= Truck::WEAPON_RANGE && distance < closest_distance {
+                            closest_distance = distance;
+                            closest_enemy_pos = Some(enemy.position);
+                        }
+                    }
+                    
+                    if let Some(enemy_pos) = closest_enemy_pos {
+                        let truck_screen = Pos2::new(truck.position.x + self.camera_offset.x, truck.position.y + self.camera_offset.y);
+                        let enemy_screen = Pos2::new(enemy_pos.x + self.camera_offset.x, enemy_pos.y + self.camera_offset.y);
+                        painter.line_segment([truck_screen, enemy_screen], (2.0, Color32::from_rgb(255, 255, 0)));
+                    }
                 }
             }
             

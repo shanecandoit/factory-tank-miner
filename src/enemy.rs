@@ -19,9 +19,9 @@ impl EnemySize {
     
     pub fn health(&self) -> u32 {
         match self {
-            EnemySize::Small => 50,
-            EnemySize::Medium => 200,
-            EnemySize::Large => 500,
+            EnemySize::Small => 10,
+            EnemySize::Medium => 40,
+            EnemySize::Large => 100,
         }
     }
 }
